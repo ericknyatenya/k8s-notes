@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-with-log-sidecar
+  labels:
+    app: myapp
+spec:
+  # Both containers share the same network (same IP) and can share volumes.
+  # They are always scheduled together on the same node.
+  containers:
+
+    # --- Primary container: the application ---
+    - name: app
+      image: busybox:1.36
+      command: ["/bin/sh", "-c"]
+      args:
+        # Simulates an app writing logs to a shared file
+        - while true; do echo "$(date) - app log line" >> /var/log/app/app.log; sleep 5; done
+      volumeMounts:
+        - name: shared-logs     # Must match the volume name below
+          mountPath: /var/log/app
+
+    # --- Sidecar container: log shipper ---
+    # Pattern: sidecar handles a cross-cutting concern (logging, proxying, TLS)
+    # so the app container doesn't have to.
+    - name: log-shipper
+      image: busybox:1.36
+      command: ["/bin/sh", "-c"]
+      args:
+        # Simulates tailing and shipping logs (in reality: Fluentd, Filebeat, etc.)
+        - tail -F /var/log/app/app.log
+      volumeMounts:
+        - name: shared-logs
+          mountPath: /var/log/app  # Same mount path — both containers see the same files
+
+  volumes:
+    # emptyDir: created fresh when the Pod starts, deleted when the Pod is removed.
+    # Good for sharing data between containers in the same Pod.
+    # Not for persistent storage — use PersistentVolumeClaims for that.
+    - name: shared-logs
+      emptyDir: {}
+
+  restartPolicy: Always
